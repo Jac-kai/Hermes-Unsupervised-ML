@@ -124,7 +124,7 @@ class BaseClusterConfig(ABC):
     """
 
     step_name: str = "clusterer"
-
+    # -------------------- Initialization --------------------
     def __init__(self, cleaned_X_data: pd.DataFrame):
         """
         Initialize the clustering base manager with cleaned feature data.
@@ -163,20 +163,22 @@ class BaseClusterConfig(ABC):
         if cleaned_X_data.empty:
             raise ValueError("⚠️  cleaned_X_data is empty ‼️")
 
-        self.cleaned_X_data = cleaned_X_data.copy()
+        self.cleaned_X_data = cleaned_X_data.copy() # Copy original data
 
+        # ---------- Record model preprocesses and pipeline ----------
         self.model_pipeline = None
         self.feature_names = None
         self.X_processed = None
 
+        # ---------- Record Numeric- and non-numeric-type columns ----------
         self._numeric_cols = None
         self._categorical_cols = None
 
-        # run metadata
+        # ---------- Record metadata ----------
         self.input_model_type = None
         self.input_use_scaler = None
 
-        # clustering outputs
+        # ---------- Clustering outputs ----------
         self.labels_: Optional[np.ndarray] = None
         self.cluster_centers_: Optional[np.ndarray] = None
         self.inertia_: Optional[float] = None
@@ -199,7 +201,7 @@ class BaseClusterConfig(ABC):
         """
         return "clustering"
 
-    # ---------- scaler helper ----------
+    # ---------- Helper: build scalers ----------
     def _build_scaler(self, scaler_type: str = "standard"):
         """
         Build a scaler instance based on user selection.
@@ -249,7 +251,7 @@ class BaseClusterConfig(ABC):
             "⚠️  scaler_type must be 'standard', 'minmax', 'robust', or 'none' ‼️"
         )
 
-    # ---------- preprocess ----------
+    # -------------------- Build preprocess --------------------
     def build_preprocessor(
         self,
         categorical_cols: Optional[List[str]] = None,
@@ -324,10 +326,12 @@ class BaseClusterConfig(ABC):
         self._numeric_cols = numeric_cols
         self._categorical_cols = categorical_cols
 
+        # ---------- Numeric columns ----------
         numeric_transformer = Pipeline(
             steps=[("imputer", SimpleImputer(strategy="median"))]
         )
 
+        # ---------- Encoding non-numeric columns ----------
         cat_encoder = cat_encoder.lower().strip()
         if cat_encoder in ["ohe", "onehot", "one_hot"]:
             categorical_transformer = Pipeline(
@@ -351,6 +355,7 @@ class BaseClusterConfig(ABC):
         else:
             raise ValueError("⚠️  cat_encoder must be 'ohe' or 'ordinal' ‼️")
 
+        # ---------- Merge the preprocessed columns ----------
         return ColumnTransformer(
             transformers=[
                 ("num", numeric_transformer, numeric_cols),
@@ -360,7 +365,7 @@ class BaseClusterConfig(ABC):
             verbose_feature_names_out=False,
         )
 
-    # ---------- Shared fit of clusterer ----------
+    # -------------------- Shared fit of clusterer --------------------
     def fit_cluster_pipeline(
         self,
         base_model: Any,
@@ -473,7 +478,7 @@ class BaseClusterConfig(ABC):
 
         return self.model_pipeline
 
-    # ---------- Capture cluster outputs ----------
+    # -------------------- Capture cluster outputs --------------------
     def _capture_cluster_outputs(self):
         """
         Capture common fitted outputs from the final clustering estimator.
@@ -544,7 +549,7 @@ class BaseClusterConfig(ABC):
             if inertia is not None:
                 self.inertia_ = float(inertia)
 
-    # ---------- transform helpers ----------
+    # ---------- Helper: transform before clustering ----------
     def _transform_before_clusterer(self, X: pd.DataFrame) -> Optional[np.ndarray]:
         """
         Transform input data using all fitted pipeline steps before the final clusterer.
@@ -580,7 +585,7 @@ class BaseClusterConfig(ABC):
 
         # ---------- Record pipeline's steps ----------
         for step_name, step_obj in self.model_pipeline.steps:
-            if step_name == self.step_name:
+            if step_name == self.step_name: # Stop at estimator
                 break
             Xt = step_obj.transform(Xt)
 
@@ -766,7 +771,7 @@ class BaseClusterConfig(ABC):
 
         return self.model_pipeline
 
-    # ---------- Utility ----------
+    # -------------------- Utility --------------------
     def clone_clusterer_engine(self):
         """
         Clone the final clustering estimator from the fitted pipeline.
