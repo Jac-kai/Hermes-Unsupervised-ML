@@ -26,32 +26,92 @@ os.makedirs(PLOT_DIR, exist_ok=True)
 # -------------------- Base Clustering Missioner --------------------
 class BaseClustering_Missioner(BaseClusterConfig):
     """
-    Base mission layer for clustering tasks.
+    Base mission layer for clustering workflows.
 
-    This class extends BaseClusterConfig and provides clustering-task logic
-    shared across clustering algorithms such as:
+    This class extends ``BaseClusterConfig`` and provides mission-level utilities
+    built on top of a fitted clustering pipeline. It is designed to support
+    clustering algorithms such as:
 
-    - KMeans
-    - DBSCAN
-    - AgglomerativeClustering
+    - ``KMeans``
+    - ``DBSCAN``
+    - ``AgglomerativeClustering``
 
-    Responsibilities
-    ----------------
-    - Evaluate fitted clustering results using internal metrics
-    - Build compact clustering summary dictionaries
-    - Preview clustering labels
-    - Handle noise-aware evaluation logic for DBSCAN-style outputs
+    Main Responsibilities
+    ---------------------
+    - rebuild runtime summaries after loading a saved model
+    - prepare transformed feature data and labels for clustering metrics
+    - compute internal clustering evaluation metrics
+    - build compact clustering summary dictionaries
+    - preview predicted cluster labels
+    - attach cluster labels back to the clustering input data
+    - summarize cluster size distribution
+    - summarize per-cluster mean feature profiles
+    - visualize cluster results through bar plots, scatter plots, PCA plots,
+      silhouette plots, and profile heatmaps
+
+    Workflow Position
+    -----------------
+    This mission layer assumes that the base clustering pipeline has already been
+    fitted and that common fitted outputs have already been captured into the
+    current object, including:
+
+    - ``self.model_pipeline``
+    - ``self.X_processed``
+    - ``self.labels_``
+    - ``self.cluster_centers_``
+    - ``self.inertia_``
+
+    Runtime Outputs
+    ---------------
+    In addition to the base-class state, this class stores higher-level
+    clustering outputs such as:
+
+    - ``self.evaluation_result``
+    - ``self.prediction_preview``
+    - ``self.clustered_data_preview``
+    - ``self.cluster_size_summary``
+    - ``self.cluster_profile_summary``
+    - ``self.cluster_summary``
 
     Notes
     -----
-    This mission layer assumes:
-    - the pipeline has already been fitted
-    - clustering outputs have already been captured into:
-      self.labels_, self.cluster_centers_, self.inertia_
+    - This class does not build clustering estimators itself; estimator creation
+      is expected to happen in model-specific mission subclasses.
+    - Most methods operate on ``self.X_processed`` and ``self.labels_``, which
+      are expected to refer to the same sample order.
+    - Noise-aware logic is supported for algorithms such as DBSCAN where the
+      label ``-1`` may represent noise or outlier samples.
     """
 
     # -------------------- Initialization --------------------
     def __init__(self, cleaned_X_data: pd.DataFrame):
+        """
+        Initialize the clustering mission layer.
+
+        Parameters
+        ----------
+        cleaned_X_data : pd.DataFrame
+            Cleaned feature matrix used for clustering. This should be the same
+            feature dataset that will later be transformed and passed into the
+            clustering pipeline.
+
+        Side Effects
+        ------------
+        Calls the base-class initializer and prepares mission-layer runtime
+        containers for:
+
+        - evaluation results
+        - cluster-label previews
+        - clustered-data previews
+        - cluster-size summaries
+        - cluster-profile summaries
+        - compact clustering summaries
+
+        Notes
+        -----
+        All mission-layer outputs are initialized to ``None`` because no clustering
+        workflow has been executed yet.
+        """
         super().__init__(cleaned_X_data)  # Initialization
         self.evaluation_result: Optional[Dict[str, Any]] = None
         self.prediction_preview: Optional[pd.DataFrame] = None
@@ -63,11 +123,31 @@ class BaseClustering_Missioner(BaseClusterConfig):
     # -------------------- Rebuild cluster state for loading engine --------------------
     def _rebuild_cluster_runtime_state(self):
         """
-        Rebuild clustering runtime summaries and previews after loading.
+        Rebuild mission-layer clustering outputs after loading a saved model.
 
-        This helper regenerates mission-layer clustering outputs from the restored
-        fitted pipeline and captured clustering attributes so that a loaded model
-        behaves the same as a freshly trained model.
+        This helper is intended for post-load recovery. After a fitted clustering
+        pipeline has been restored from disk and common fitted attributes such as
+        ``self.labels_`` have been recaptured, this method rebuilds mission-layer
+        outputs so that the loaded model behaves more like a freshly trained model.
+
+        Rebuilt Outputs
+        ---------------
+        This method attempts to rebuild:
+
+        - clustering evaluation results
+        - compact clustering summary
+        - clustered-data preview
+        - cluster-size summary
+        - cluster-profile summary
+
+        Behavior
+        --------
+        - Raises an error if the fitted pipeline is unavailable.
+        - Raises an error if cluster labels are unavailable.
+        - Uses DBSCAN-specific defaults for noise handling when
+        ``self.input_model_type == "DBSCAN"``.
+        - Wraps each rebuild step in ``try/except`` so that one failed summary does
+        not prevent the others from being restored.
 
         Returns
         -------
@@ -76,9 +156,15 @@ class BaseClustering_Missioner(BaseClusterConfig):
         Raises
         ------
         ValueError
-            If the fitted pipeline is unavailable.
+            If no fitted clustering pipeline is available.
         ValueError
-            If cluster labels are unavailable.
+            If cluster labels are unavailable after loading.
+
+        Notes
+        -----
+        This method rebuilds default runtime summaries only. It does not restore
+        every interactive plotting or reporting choice that may have been selected
+        previously through the menu workflow.
         """
         if self.model_pipeline is None:
             raise ValueError("⚠️ No fitted clustering pipeline found ‼️")
@@ -122,28 +208,57 @@ class BaseClustering_Missioner(BaseClusterConfig):
         except Exception as e:
             print(f"⚠️ Failed to rebuild cluster profile summary: {e} ‼️")
 
-    # -------------------- Helper --------------------
+    # -------------------- Helper: Ready for data --------------------
     def _get_ready_data(
         self,
         ignore_noise: bool = True,
     ):
         """
-        Prepare transformed X and labels for clustering metric calculation.
+        Prepare transformed feature data and cluster labels for metric calculation.
+
+        This helper converts the cached transformed feature matrix and fitted cluster
+        labels into NumPy arrays, computes noise statistics, optionally removes
+        noise-labeled samples, and returns the cleaned data needed by downstream
+        clustering metric functions.
 
         Parameters
         ----------
         ignore_noise : bool, default=True
-            Whether to exclude noise points with label -1.
+            Whether to exclude samples labeled ``-1`` from the returned metric data.
 
         Returns
         -------
         tuple
-            (X_metric, y_metric, noise_count, noise_ratio, n_clusters_found)
+            A tuple containing:
+
+            - ``X_metric`` : np.ndarray
+                Feature matrix used for metric calculation.
+            - ``y_metric`` : np.ndarray
+                Cluster labels aligned with ``X_metric``.
+            - ``noise_count`` : int
+                Number of samples labeled ``-1``.
+            - ``noise_ratio`` : float
+                Ratio of noise samples to total samples.
+            - ``n_clusters_found`` : int
+                Number of valid clusters found, excluding the noise label ``-1``.
 
         Raises
         ------
         ValueError
-            If transformed X or labels are unavailable.
+            If ``self.X_processed`` is unavailable.
+        ValueError
+            If ``self.labels_`` is unavailable.
+        ValueError
+            If ``self.X_processed`` is not a 2D array.
+
+        Notes
+        -----
+        - ``X_metric`` and ``y_metric`` are returned in aligned sample order.
+        - Noise handling is especially relevant for density-based methods such as
+        DBSCAN where the label ``-1`` may appear.
+        - This method assumes that ``self.X_processed`` and ``self.labels_`` were
+        generated from the same fitted clustering workflow and therefore refer to
+        the same sample order.
         """
         if self.X_processed is None:
             raise ValueError(
@@ -186,12 +301,21 @@ class BaseClustering_Missioner(BaseClusterConfig):
     # -------------------- Clustering original dataset and label check --------------------
     def _check_cluster_ready(self):
         """
-        Validate that clustering outputs are available.
+        Validate that clustering outputs required for downstream analysis exist.
+
+        This helper checks that both the transformed feature matrix and fitted
+        cluster labels are available before plotting or summary methods proceed.
+
+        Returns
+        -------
+        None
 
         Raises
         ------
         ValueError
-            If clustering labels or transformed feature matrix are unavailable.
+            If ``self.X_processed`` is unavailable.
+        ValueError
+            If ``self.labels_`` is unavailable.
         """
         if self.X_processed is None:
             raise ValueError("⚠️  X_processed not found. Run cluster_fit() first ‼️")
@@ -207,16 +331,44 @@ class BaseClustering_Missioner(BaseClusterConfig):
         """
         Evaluate fitted clustering results using internal clustering metrics.
 
+        This method prepares transformed feature data and cluster labels through
+        ``_get_ready_data()``, then computes standard internal clustering metrics
+        when enough valid samples and distinct clusters are available.
+
         Parameters
         ----------
         ignore_noise : bool, default=True
-            Whether to exclude noise points (-1) when computing metrics.
+            Whether to exclude samples labeled ``-1`` before computing clustering
+            metrics.
 
         Returns
         -------
         Dict[str, Any]
-            Evaluation result dictionary.
+            Dictionary containing clustering evaluation results, including:
+
+            - number of samples
+            - number of original features
+            - number of transformed features
+            - number of clusters found
+            - noise count
+            - noise ratio
+            - silhouette score
+            - Calinski-Harabasz score
+            - Davies-Bouldin score
+            - inertia
+            - cluster-center availability flag
+
+        Side Effects
+        ------------
+        Stores the evaluation result dictionary in ``self.evaluation_result``.
+
+        Notes
+        -----
+        - Internal metrics are computed only when at least two samples and at least
+          two unique valid clusters remain.
+        - If a metric computation fails, that metric value is stored as ``None``.
         """
+        # ---------- Get ready data ----------
         X_metric, y_metric, noise_count, noise_ratio, n_clusters_found = (
             self._get_ready_data(ignore_noise=ignore_noise)
         )
@@ -226,16 +378,19 @@ class BaseClustering_Missioner(BaseClusterConfig):
         db_val = None
 
         if len(y_metric) >= 2 and len(np.unique(y_metric)) >= 2:
+            # ---------- Silhouette score ----------
             try:
                 silhouette_val = float(silhouette_score(X_metric, y_metric))
             except Exception:
                 silhouette_val = None
 
+            # ---------- Calinski Harabasz score ----------
             try:
                 ch_val = float(calinski_harabasz_score(X_metric, y_metric))
             except Exception:
                 ch_val = None
 
+            # ---------- Davies Bouldin score ----------
             try:
                 db_val = float(davies_bouldin_score(X_metric, y_metric))
             except Exception:
@@ -256,35 +411,53 @@ class BaseClustering_Missioner(BaseClusterConfig):
             "inertia": self.inertia_,
             "has_cluster_centers": self.cluster_centers_ is not None,
         }
-        self.evaluation_result = result
+        self.evaluation_result = result  # Record evaluation results (Dict foramt)
 
         return result
 
     # -------------------- Summary --------------------
     def cluster_summary_engine(self) -> Dict[str, Any]:
         """
-        Build a compact clustering summary dictionary.
+        Build a compact summary dictionary for the current clustering result.
 
-        This method collects core fitted-model metadata and evaluation outputs into
-        a single summary dictionary for downstream display, saving, or reporting.
+        This method combines basic fitted-model metadata with values from
+        ``self.evaluation_result`` into a single summary dictionary suitable for
+        display, saving, or reporting.
 
         Returns
         -------
         Dict[str, Any]
-            Summary dictionary containing model name, task type, scaler setting,
-            sample count, feature counts, discovered cluster count, noise statistics,
-            internal evaluation metrics, inertia, cluster-center availability, and
-            transformed feature-name count.
+            Summary dictionary containing:
+
+            - model name
+            - task type
+            - scaler setting
+            - sample count
+            - original feature count
+            - transformed feature count
+            - number of clusters found
+            - noise count
+            - noise ratio
+            - silhouette score
+            - Calinski-Harabasz score
+            - Davies-Bouldin score
+            - inertia
+            - cluster-center availability
+            - transformed feature-name count
 
         Raises
         ------
         ValueError
             If no fitted clustering pipeline is available.
 
+        Side Effects
+        ------------
+        Stores the summary dictionary in ``self.cluster_summary``.
+
         Notes
         -----
-        If ``self.evaluation_result`` has not been built yet, this method calls
-        ``clustering_evaluation_engine()`` first.
+        If ``self.evaluation_result`` has not been built yet, this method will
+        first call ``clustering_evaluation_engine()`` automatically.
         """
         if self.model_pipeline is None:
             raise ValueError("⚠️  No fitted clustering pipeline found ‼️")
@@ -292,6 +465,7 @@ class BaseClustering_Missioner(BaseClusterConfig):
         if self.evaluation_result is None:
             self.clustering_evaluation_engine()
 
+        # ---------- Get estimator name from pipeline ----------
         clusterer = self.model_pipeline.named_steps.get(self.step_name, None)
         model_name = (
             clusterer.__class__.__name__ if clusterer is not None else "Unknown"
@@ -321,23 +495,38 @@ class BaseClustering_Missioner(BaseClusterConfig):
             ),
         }
 
-        self.cluster_summary = summary
+        self.cluster_summary = summary  # Record model summary (Dict format)
         return summary
 
     # -------------------- Label preview --------------------
     def cluster_label_preview_engine(self, n: int = 10) -> pd.DataFrame:
         """
-        Preview cluster labels with original row indices.
+        Preview fitted cluster labels together with original row indices.
 
         Parameters
         ----------
         n : int, default=10
-            Number of rows to preview.
+            Number of preview rows to return.
 
         Returns
         -------
         pd.DataFrame
-            Preview DataFrame with original index and cluster labels.
+            Preview table showing original row indices and their corresponding
+            cluster labels.
+
+        Raises
+        ------
+        ValueError
+            If cluster labels are unavailable.
+
+        Side Effects
+        ------------
+        Stores the preview table in ``self.prediction_preview``.
+
+        Notes
+        -----
+        The preview is returned in transposed form after selecting the first ``n``
+        rows, matching the current implementation.
         """
         if self.labels_ is None:
             raise ValueError("⚠️  Cluster labels not found. Run cluster_fit() first ‼️")
@@ -355,18 +544,35 @@ class BaseClustering_Missioner(BaseClusterConfig):
     # -------------------- Label and data after clustering --------------------
     def cluster_labels_in_data_engine(self) -> pd.DataFrame:
         """
-        Attach cluster labels to the original cleaned input data.
+        Attach fitted cluster labels to the clustering input data.
+
+        This method copies ``self.cleaned_X_data``, appends a ``cluster_label``
+        column using ``self.labels_``, and returns the labeled clustering dataset.
 
         Returns
         -------
         pd.DataFrame
-            Original cleaned_X_data with an additional `cluster_label` column.
+            Clustering input data with one additional ``cluster_label`` column.
+
+        Raises
+        ------
+        ValueError
+            If cluster labels are unavailable.
+
+        Side Effects
+        ------------
+        Stores the labeled DataFrame in ``self.clustered_data_preview``.
+
+        Notes
+        -----
+        This method works on the cleaned clustering feature matrix rather than the
+        original raw source dataset.
         """
         if self.labels_ is None:
             raise ValueError("⚠️  Cluster labels not found. Run cluster_fit() first ‼️")
 
         df = self.cleaned_X_data.copy()
-        df["cluster_label"] = self.labels_
+        df["cluster_label"] = self.labels_  # Add label into X data
         self.clustered_data_preview = df
 
         return df
@@ -374,12 +580,33 @@ class BaseClustering_Missioner(BaseClusterConfig):
     # -------------------- Clustering size summary --------------------
     def cluster_size_summary_engine(self) -> pd.DataFrame:
         """
-        Summarize the number of samples and proportion in each cluster.
+        Summarize the size distribution of discovered clusters.
+
+        This method counts how many samples belong to each cluster label, computes
+        the corresponding ratio over all labeled samples, and returns the resulting
+        summary table.
 
         Returns
         -------
         pd.DataFrame
-            Summary table with cluster label, sample count, and ratio.
+            Summary table containing:
+
+            - ``cluster_label`` : cluster identifier
+            - ``count`` : number of samples in that cluster
+            - ``ratio`` : proportion of samples in that cluster
+
+        Raises
+        ------
+        ValueError
+            If cluster labels are unavailable.
+
+        Side Effects
+        ------------
+        Stores the summary table in ``self.cluster_size_summary``.
+
+        Notes
+        -----
+        Noise labels such as ``-1`` are included in the summary if present.
         """
         if self.labels_ is None:
             raise ValueError("⚠️  Cluster labels not found. Run cluster_fit() first ‼️")
@@ -405,12 +632,16 @@ class BaseClustering_Missioner(BaseClusterConfig):
         """
         Summarize mean feature values for each cluster.
 
+        This method appends fitted cluster labels to the cleaned clustering input
+        data, optionally removes noise-labeled rows, groups rows by cluster label,
+        and computes per-cluster mean feature values.
+
         Parameters
         ----------
         numeric_only : bool, default=True
             Whether to aggregate only numeric columns.
         ignore_noise : bool, default=False
-            Whether to exclude noise samples with label ``-1`` before aggregation.
+            Whether to exclude samples labeled ``-1`` before aggregation.
 
         Returns
         -------
@@ -420,11 +651,21 @@ class BaseClustering_Missioner(BaseClusterConfig):
         Raises
         ------
         ValueError
-            If clustering labels are not available.
+            If clustering labels are unavailable.
         ValueError
             If no rows remain after optional noise filtering.
         ValueError
             If no numeric columns are available for aggregation.
+
+        Side Effects
+        ------------
+        Stores the profile summary table in ``self.cluster_profile_summary``.
+
+        Notes
+        -----
+        This method is primarily designed for numeric aggregation. Even when
+        ``numeric_only=False`` is used, the current implementation still computes
+        mean values over numeric-compatible columns.
         """
         if self.labels_ is None:
             raise ValueError("⚠️  Cluster labels not found. Run cluster_fit() first ‼️")
@@ -462,11 +703,11 @@ class BaseClustering_Missioner(BaseClusterConfig):
         fig_name: str = "cluster_size_barplot.png",
     ):
         """
-        Plot the sample count of each cluster as a bar chart.
+        Plot the number of samples in each cluster as a bar chart.
 
         This method builds a cluster-size summary table through
-        ``cluster_size_summary_engine()`` and visualizes the sample count of each
-        cluster label using a matplotlib bar chart.
+        ``cluster_size_summary_engine()`` and visualizes sample counts per cluster
+        using a standard matplotlib bar chart.
 
         Parameters
         ----------
@@ -484,12 +725,11 @@ class BaseClustering_Missioner(BaseClusterConfig):
         Raises
         ------
         ValueError
-            If cluster labels are unavailable and the size summary cannot be built.
+            If cluster labels are unavailable.
 
         Notes
         -----
-        The x-axis shows cluster labels converted to string form, and the y-axis
-        shows the number of samples assigned to each cluster.
+        Cluster labels are converted to strings for plotting on the x-axis.
         """
         summary = self.cluster_size_summary_engine()
 
@@ -516,11 +756,11 @@ class BaseClustering_Missioner(BaseClusterConfig):
         fig_name: str = "cluster_scatter_plot.png",
     ):
         """
-        Plot a 2D scatter chart using two transformed feature dimensions.
+        Plot clustering results in a 2D scatter view using two transformed features.
 
-        This method visualizes clustering results in the transformed feature space
-        stored in ``self.X_processed``. Each point is colored by its cluster label,
-        and noise points (label ``-1``) are shown separately when present.
+        This method visualizes clustering assignments directly in the transformed
+        feature space stored in ``self.X_processed``. Samples are grouped by fitted
+        cluster label, and each label is plotted as a separate point group.
 
         Parameters
         ----------
@@ -542,18 +782,22 @@ class BaseClustering_Missioner(BaseClusterConfig):
         Raises
         ------
         ValueError
-            If clustering outputs are unavailable.
+            If clustering data is unavailable.
         ValueError
-            If ``self.X_processed`` has fewer than 2 feature dimensions.
+            If ``self.X_processed`` has fewer than two feature dimensions.
         ValueError
-            If ``feature_idx_1`` and ``feature_idx_2`` are the same.
+            If the two feature indices are identical.
         ValueError
-            If either feature index is outside the valid column range.
+            If either feature index is outside the valid transformed-feature range.
 
         Notes
         -----
-        This plot uses the already transformed feature matrix and does not apply PCA
-        or any additional dimensionality reduction.
+        - This method uses the already transformed feature matrix directly and does
+        not apply PCA.
+        - Noise-labeled samples (``-1``) are shown as a separate plotted group when
+        present.
+        - The plotted coordinates depend entirely on the transformed feature space,
+        not on the original raw input columns.
         """
         self._check_cluster_ready()
 
@@ -606,50 +850,45 @@ class BaseClustering_Missioner(BaseClusterConfig):
         fig_name: str = "cluster_pca_plot.png",
     ):
         """
-        Visualize clustering results in 2D or 3D projected space.
+        Visualize clustering results in 2D or 3D using direct transformed space or PCA.
 
-        Plotting Logic
-        --------------
-        This method first uses ``self.X_processed`` as the plotting source.
-
-        - If ``self.X_processed`` already has exactly the requested number of dimensions,
-        it is plotted directly.
-        - If ``self.X_processed`` has more dimensions than requested, PCA is applied
-        only for visualization.
-        - If ``self.X_processed`` has fewer dimensions than requested, an error is raised.
-
-        This design avoids unnecessary repeated PCA when dimensionality reduction
-        has already been included earlier in the fitted pipeline via ``extra_steps``.
+        This method uses ``self.X_processed`` as the plotting source. If the current
+        transformed dimensionality already matches the requested dimension, that
+        transformed space is plotted directly. Otherwise, PCA is applied only for
+        visualization.
 
         Parameters
         ----------
         n_components : int, default=2
-            Target plotting dimension. Supported values are:
-            - 2 for 2D scatter plot
-            - 3 for 3D scatter plot
-
+            Target plotting dimension. Supported values are ``2`` and ``3``.
         ignore_noise : bool, default=False
-            Whether to exclude noise samples with cluster label ``-1`` before plotting.
-
+            Whether to exclude samples labeled ``-1`` before visualization.
         figsize : tuple, default=(8, 6)
             Figure size.
-
         save_fig : bool, default=False
             Whether to save the figure.
-
         fig_name : str, default="cluster_pca_plot.png"
-            Output file name when ``save_fig=True``.
+            Output file name used when ``save_fig=True``.
+
+        Returns
+        -------
+        None
 
         Raises
         ------
         ValueError
-            If clustering outputs are unavailable.
+            If clustering data is unavailable.
         ValueError
             If ``n_components`` is not 2 or 3.
         ValueError
             If no samples remain after optional noise filtering.
         ValueError
-            If ``self.X_processed`` has fewer dimensions than ``n_components``.
+            If ``self.X_processed`` has fewer dimensions than requested.
+
+        Notes
+        -----
+        This method avoids unnecessary PCA when the transformed feature space already
+        matches the requested plotting dimensionality.
         """
         self._check_cluster_ready()
 
@@ -755,11 +994,10 @@ class BaseClustering_Missioner(BaseClusterConfig):
         fig_name: str = "silhouette_plot.png",
     ):
         """
-        Plot silhouette values for each sample grouped by cluster.
+        Plot per-sample silhouette values grouped by cluster.
 
-        This method computes per-sample silhouette coefficients from the processed
-        feature matrix and fitted cluster labels, then visualizes the distribution
-        of silhouette values for each cluster as a stacked horizontal silhouette plot.
+        This method computes silhouette coefficients for each valid sample and
+        visualizes them as a stacked horizontal silhouette plot grouped by cluster.
 
         Parameters
         ----------
@@ -779,14 +1017,14 @@ class BaseClustering_Missioner(BaseClusterConfig):
         Raises
         ------
         ValueError
-            If transformed data or cluster labels are unavailable.
+            If transformed feature data or cluster labels are unavailable.
         ValueError
-            If fewer than 2 valid clusters remain for silhouette analysis.
+            If fewer than two valid clusters remain for silhouette analysis.
 
         Notes
         -----
-        A vertical dashed line is drawn at the average silhouette score to help
-        compare per-cluster distributions against the global clustering quality.
+        A vertical dashed line is drawn at the average silhouette score to provide
+        a visual reference for overall clustering quality.
         """
         X_metric, y_metric, _, _, _ = self._get_ready_data(ignore_noise=ignore_noise)
 
@@ -840,30 +1078,24 @@ class BaseClustering_Missioner(BaseClusterConfig):
         fig_name: str = "cluster_profile_heatmap.png",
     ):
         """
-        Plot cluster mean feature profiles as a heatmap.
+        Plot cluster-level feature means as a heatmap.
 
-        This method summarizes cluster-level mean feature values using
-        ``cluster_profile_summary_engine()`` and visualizes the resulting table
-        as a seaborn heatmap. Each row represents a cluster label and each column
-        represents an aggregated feature.
+        This method first builds a cluster profile summary table through
+        ``cluster_profile_summary_engine()``, then visualizes the per-cluster mean
+        feature values as a heatmap.
 
         Parameters
         ----------
         numeric_only : bool, default=True
-            Whether to aggregate only numeric columns when building the cluster
-            profile summary.
-
+            Whether to aggregate only numeric columns when building the profile
+            summary.
         ignore_noise : bool, default=False
-            Whether to exclude samples labeled ``-1`` before computing the cluster
-            profile summary. This is mainly useful for clustering methods that may
-            assign noise labels, such as DBSCAN.
-
+            Whether to exclude samples labeled ``-1`` before computing the profile
+            summary.
         figsize : tuple, default=(10, 6)
-            Figure size in inches, passed to ``plt.figure()``.
-
+            Figure size passed to ``plt.figure()``.
         save_fig : bool, default=False
             Whether to save the generated figure to ``PLOT_DIR``.
-
         fig_name : str, default="cluster_profile_heatmap.png"
             Output file name used when ``save_fig=True``.
 
@@ -882,8 +1114,8 @@ class BaseClustering_Missioner(BaseClusterConfig):
 
         Notes
         -----
-        The heatmap uses fixed display settings for annotation, numeric formatting,
-        and colormap so that plot outputs remain visually consistent across runs.
+        The heatmap visualizes aggregated feature means, with each row representing
+        a cluster and each column representing a summarized feature.
         """
         profile = self.cluster_profile_summary_engine(
             numeric_only=numeric_only,

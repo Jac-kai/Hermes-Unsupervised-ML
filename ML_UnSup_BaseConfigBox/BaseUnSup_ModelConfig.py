@@ -124,6 +124,7 @@ class BaseClusterConfig(ABC):
     """
 
     step_name: str = "clusterer"
+
     # -------------------- Initialization --------------------
     def __init__(self, cleaned_X_data: pd.DataFrame):
         """
@@ -163,7 +164,7 @@ class BaseClusterConfig(ABC):
         if cleaned_X_data.empty:
             raise ValueError("⚠️  cleaned_X_data is empty ‼️")
 
-        self.cleaned_X_data = cleaned_X_data.copy() # Copy original data
+        self.cleaned_X_data = cleaned_X_data.copy()  # Copy original data
 
         # ---------- Record model preprocesses and pipeline ----------
         self.model_pipeline = None
@@ -585,7 +586,7 @@ class BaseClusterConfig(ABC):
 
         # ---------- Record pipeline's steps ----------
         for step_name, step_obj in self.model_pipeline.steps:
-            if step_name == self.step_name: # Stop at estimator
+            if step_name == self.step_name:  # Stop at estimator
                 break
             Xt = step_obj.transform(Xt)
 
