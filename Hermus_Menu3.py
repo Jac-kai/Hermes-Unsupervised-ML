@@ -1,6 +1,7 @@
 # -------------------- Import Modules --------------------
 import logging
 from pprint import pprint
+from typing import Literal
 
 from Hermes.Hermus_ML_UnSup_Engine import HermesEngine
 from Hermes.Menu_Config import EVALUATION_MENU_OPTIONS
@@ -331,6 +332,186 @@ def _select_dbscan_k_distance_k(hermes: HermesEngine) -> int | None:
     return selected_k
 
 
+# -------------------- Helper: select ignore zero distance for DBSCAN k-distance plot --------------------
+def _select_ignore_zero_distance_option(default: int = 1) -> bool | None:
+    """
+    Ask whether zero-distance values should be ignored in the DBSCAN
+    k-distance plot.
+
+    This helper displays a small numbered menu for controlling whether
+    zero-distance values should be removed before plotting the sorted
+    k-distance curve. This is mainly useful when duplicate or perfectly
+    overlapping samples may produce distance values of 0 and make the
+    curve harder to inspect visually.
+
+    Parameters
+    ----------
+    default : int, default=1
+        Default menu index passed to ``input_int`` when the user presses Enter.
+
+    Returns
+    -------
+    bool or None
+        - ``True``: ignore zero-distance values
+        - ``False``: keep zero-distance values
+        - ``None``: user goes back or the selection is invalid
+
+    Workflow
+    --------
+    1. Display the ignore-zero-distance option menu.
+    2. Read the selected menu number.
+    3. Validate the selected number.
+    4. Return the mapped Boolean value.
+
+    Notes
+    -----
+    The numeric menu is mapped as:
+    - ``1`` -> ``True``
+    - ``2`` -> ``False``
+
+    Examples
+    --------
+    >>> ignore_zero_distance = _select_ignore_zero_distance_option(default=1)
+    >>> print(ignore_zero_distance)
+    """
+    zero_menu = {
+        1: True,
+        2: False,
+    }
+
+    print("\n----- 0️⃣ Ignore Zero Distance -----")
+    for num, value in zero_menu.items():
+        print(f"📌 {num}. {value}")
+    print("-" * 50)
+
+    selected_num = input_int("🕯️ Select option", default=default)
+    if selected_num is None:
+        return None
+
+    if selected_num not in zero_menu:
+        print("⚠️ Selection is out of range ‼️")
+        return None
+
+    return zero_menu[selected_num]
+
+
+# -------------------- Helper: select truncate mode for Dendrogram --------------------
+def _select_dendrogram_truncate_mode() -> Literal["lastp", "level", "__BACK__"] | None:
+    """
+    Ask for the dendrogram truncate mode used in agglomerative
+    dendrogram plotting.
+
+    This helper displays a numbered menu for selecting how much of the
+    dendrogram should be shown. It supports either displaying the full
+    dendrogram or using a truncated view for easier inspection when the
+    number of samples is large.
+
+    Returns
+    -------
+    Literal["lastp", "level", "__BACK__"] or None
+        - ``None``: show the full dendrogram
+        - ``"lastp"``: show only the last ``p`` merged clusters
+        - ``"level"``: show only ``p`` hierarchy levels
+        - ``"__BACK__"``: user goes back or the selection is invalid
+
+    Workflow
+    --------
+    1. Display the dendrogram truncate-mode menu.
+    2. Read the selected menu number.
+    3. Validate the selected number.
+    4. Return the mapped truncate mode.
+
+    Notes
+    -----
+    - ``None`` means the full dendrogram will be drawn.
+    - ``"lastp"`` and ``"level"`` require an additional ``p`` value.
+    - The special return value ``"__BACK__"`` is used by the evaluation menu
+      as a control signal to cancel the plotting workflow.
+
+    Examples
+    --------
+    >>> truncate_mode = _select_dendrogram_truncate_mode()
+    >>> print(truncate_mode)
+    """
+    truncate_menu = {
+        1: None,
+        2: "lastp",
+        3: "level",
+    }
+
+    print("\n----- 🌳 Dendrogram Truncate Mode -----")
+    for num, value in truncate_menu.items():
+        print(f"📌 {num}. {value}")
+    print("-" * 50)
+
+    selected_num = input_int("🕯️ Select option", default=1)
+    if selected_num is None:
+        return "__BACK__"
+
+    if selected_num not in truncate_menu:
+        print("⚠️ Selection is out of range ‼️")
+        return "__BACK__"
+
+    return truncate_menu[selected_num]
+
+
+# -------------------- Helper: select p for Dendrogram --------------------
+def _select_dendrogram_p() -> int | None:
+    """
+    Ask for the dendrogram truncation parameter ``p``.
+
+    This helper displays a numbered menu for selecting the integer
+    truncation parameter used by ``dendrogram_plot_engine()`` when
+    ``truncate_mode`` is not ``None``.
+
+    Returns
+    -------
+    int or None
+        - selected truncation parameter ``p``
+        - ``None``: user goes back or the selection is invalid
+
+    Workflow
+    --------
+    1. Display the dendrogram ``p`` selection menu.
+    2. Read the selected menu number.
+    3. Validate the selected number.
+    4. Return the mapped integer value.
+
+    Notes
+    -----
+    The meaning of ``p`` depends on the selected truncation mode:
+    - with ``"lastp"``, it controls how many final merged groups are shown
+    - with ``"level"``, it controls how many hierarchy levels are shown
+
+    Examples
+    --------
+    >>> p_value = _select_dendrogram_p()
+    >>> print(p_value)
+    """
+    p_menu = {
+        1: 5,
+        2: 10,
+        3: 12,
+        4: 15,
+        5: 20,
+    }
+
+    print("\n----- 🔢 Dendrogram Truncate P -----")
+    for num, value in p_menu.items():
+        print(f"📌 {num}. {value}")
+    print("-" * 50)
+
+    selected_num = input_int("🕯️ Select option", default=3)
+    if selected_num is None:
+        return None
+
+    if selected_num not in p_menu:
+        print("⚠️ Selection is out of range ‼️")
+        return None
+
+    return p_menu[selected_num]
+
+
 # -------------------- Evaluation Menu --------------------
 @menu_wrapper("Cluster Evaluation")
 def evaluation_menu(hermes: HermesEngine):
@@ -390,8 +571,9 @@ def evaluation_menu(hermes: HermesEngine):
     - Most evaluation actions are delegated to
       ``hermes.run_current_model_method()``.
     - Plotting options may ask for additional user input such as feature
-      indices, PCA component count, whether to ignore noise, whether to save the
-      figure, or a K-distance ``k`` value.
+      indices, PCA component count, whether to ignore noise, whether to ignore
+      zero-distance values, whether to save the figure, a K-distance ``k``
+      value, or dendrogram truncation settings.
     - If no current model exists, the menu prints a warning and exits
       immediately.
     - Invalid menu selections are handled by warning messages instead of raising
@@ -661,46 +843,76 @@ def evaluation_menu(hermes: HermesEngine):
         # ---------- DBSCAN K-Distance Plot ----------
         elif selected_service == 12:
             logger.info("Evaluation service selected: DBSCAN K-distance plot")
+
             k_value = _select_dbscan_k_distance_k(hermes)
             if k_value is None:
                 logger.info("DBSCAN K-distance plot cancelled during k selection")
                 continue
 
+            ignore_zero_distance = _select_ignore_zero_distance_option(default=1)
+            if ignore_zero_distance is None:
+                logger.info("DBSCAN K-distance plot cancelled during ignore-zero-distance selection")
+                continue
+
             save_fig = _select_save_fig_option()
             if save_fig is None:
-                logger.info(
-                    "DBSCAN K-distance plot cancelled during save-figure selection"
-                )
+                logger.info("DBSCAN K-distance plot cancelled during save-figure selection")
                 continue
 
             logger.info(
-                "Running DBSCAN K-distance plot: k=%s, save_fig=%s",
+                "Running DBSCAN K-distance plot: k=%s, ignore_zero_distance=%s, save_fig=%s",
                 k_value,
+                ignore_zero_distance,
                 save_fig,
             )
 
             hermes.run_current_model_method(
                 "k_distance_plot_engine",
                 k=k_value,
+                ignore_zero_distance=ignore_zero_distance,
                 save_fig=save_fig,
             )
 
         # ---------- Agglomerative Dendrogram Plot ----------
         elif selected_service == 13:
             logger.info("Evaluation service selected: agglomerative dendrogram plot")
-            save_fig = _select_save_fig_option()
-            if save_fig is None:
-                logger.info(
-                    "Agglomerative dendrogram plot cancelled during save-figure selection"
-                )
+
+            truncate_mode = _select_dendrogram_truncate_mode()
+            if truncate_mode == "__BACK__":
+                logger.info("Dendrogram plot cancelled during truncate_mode selection")
                 continue
 
-            logger.info("Running agglomerative dendrogram plot: save_fig=%s", save_fig)
-            hermes.run_current_model_method(
-                "dendrogram_plot_engine",
-                save_fig=save_fig,
+            p_value = None
+            if truncate_mode is not None:
+                p_value = _select_dendrogram_p()
+                if p_value is None:
+                    logger.info("Dendrogram plot cancelled during p selection")
+                    continue
+
+            save_fig = _select_save_fig_option()
+            if save_fig is None:
+                logger.info("Agglomerative dendrogram plot cancelled during save-figure selection")
+                continue
+
+            kwargs = {
+                "save_fig": save_fig,
+            }
+
+            if truncate_mode is not None:
+                kwargs["truncate_mode"] = truncate_mode
+                kwargs["p"] = p_value
+
+            logger.info(
+                "Running agglomerative dendrogram plot: truncate_mode=%s, p=%s, save_fig=%s",
+                truncate_mode,
+                p_value,
+                save_fig,
             )
 
+            hermes.run_current_model_method(
+                "dendrogram_plot_engine",
+                **kwargs,
+            )
         else:
             logger.warning(
                 "Invalid Cluster Evaluation Menu selection: selected_service=%s",
