@@ -1,7 +1,7 @@
 # -------------------- Import Modules --------------------
 import logging
 
-from Hermes.Hermus_ML_UnSup_Engine import HermesEngine
+from Hermes.Hermes_ML_UnSup_Engine import HermesEngine
 from Hermes.Menu_Helper_Decorator import (
     column_list,
     input_int,

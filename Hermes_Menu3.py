@@ -3,7 +3,7 @@ import logging
 from pprint import pprint
 from typing import Literal
 
-from Hermes.Hermus_ML_UnSup_Engine import HermesEngine
+from Hermes.Hermes_ML_UnSup_Engine import HermesEngine
 from Hermes.Menu_Config import EVALUATION_MENU_OPTIONS
 from Hermes.Menu_Helper_Decorator import input_int, menu_wrapper
 

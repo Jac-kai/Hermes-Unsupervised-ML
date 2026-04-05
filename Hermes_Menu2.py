@@ -7,7 +7,7 @@ from Hermes.Hermes_Model_Menu_Helper import (
     collect_model_cluster_kwargs,
     select_model_name,
 )
-from Hermes.Hermus_ML_UnSup_Engine import HermesEngine
+from Hermes.Hermes_ML_UnSup_Engine import HermesEngine
 from Hermes.Menu_Helper_Decorator import input_int, menu_wrapper
 
 logger = logging.getLogger("Hermes")

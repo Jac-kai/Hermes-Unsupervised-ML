@@ -3,10 +3,10 @@ import logging
 import time
 
 from Hermes.Hermes_Logging import hermes_init_logging
-from Hermes.Hermus_Menu1 import loaded_ml_data_menu, select_input_menu
-from Hermes.Hermus_Menu2 import cluster_model_menu
-from Hermes.Hermus_Menu3 import evaluation_menu
-from Hermes.Hermus_ML_UnSup_Engine import HermesEngine
+from Hermes.Hermes_Menu1 import loaded_ml_data_menu, select_input_menu
+from Hermes.Hermes_Menu2 import cluster_model_menu
+from Hermes.Hermes_Menu3 import evaluation_menu
+from Hermes.Hermes_ML_UnSup_Engine import HermesEngine
 from Hermes.Menu_Helper_Decorator import input_int
 
 logger = logging.getLogger("Hermes")
