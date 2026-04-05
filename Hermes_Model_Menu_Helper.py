@@ -1,5 +1,5 @@
 # -------------------- Import Modules --------------------
-from Hermes.Hermus_ML_UnSup_Engine import HermesEngine
+from Hermes.Hermes_ML_UnSup_Engine import HermesEngine
 from Hermes.Menu_Config import COMMON_CLUSTER_PARAM_CONFIG, MODEL_CLUSTER_PARAM_CONFIG
 from Hermes.Menu_Helper_Decorator import input_int
 
